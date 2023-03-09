@@ -874,3 +874,62 @@ func (r *Repository) ItemPath(item RepositoryItem) (string, error) {
 	}
 	return C.GoString(c_buf.ptr), nil
 }
+
+func (r *Repository) AddWorktree(reference *Reference, name, path string) (*Worktree, error) {
+	cname := C.CString(name)
+	defer C.free(unsafe.Pointer(cname))
+
+	cpath := C.CString(path)
+	defer C.free(unsafe.Pointer(cpath))
+
+	var opt C.git_worktree_add_options
+	var wt *C.git_worktree
+
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	ret := C.git_worktree_add_options_init(&opt, C.GIT_WORKTREE_ADD_OPTIONS_VERSION)
+	if ret < 0 {
+		return nil, MakeGitError(ret)
+	}
+	opt.ref = reference.ptr
+
+	ret = C.git_worktree_add(&wt, r.ptr, cname, cpath, &opt)
+	if ret < 0 {
+		return nil, MakeGitError(ret)
+	}
+	return newWorktree(wt), nil
+}
+
+func (r *Repository) ListWorktree() ([]string, error) {
+	cnames := C.git_strarray{}
+
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	ret := C.git_worktree_list(&cnames, r.ptr)
+	if ret < 0 {
+		return nil, MakeGitError(ret)
+	}
+	defer C.git_strarray_dispose(&cnames)
+
+	return makeStringsFromCStrings(cnames.strings, int(cnames.count)), nil
+}
+
+// Notice: git_worktree_lookup returns GIT_ERROR instead of GIT_ENOTFOUND for a non-existing worktree
+// link: https://github.com/libgit2/libgit2/issues/6366
+func (r *Repository) LookupWorktree(name string) (*Worktree, error) {
+	cname := C.CString(name)
+	defer C.free(unsafe.Pointer(cname))
+
+	var wt *C.git_worktree
+
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	ret := C.git_worktree_lookup(&wt, r.ptr, cname)
+	if ret < 0 {
+		return nil, MakeGitError(ret)
+	}
+	return newWorktree(wt), nil
+}
